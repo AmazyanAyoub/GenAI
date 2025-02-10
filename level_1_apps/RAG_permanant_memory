@@ -1,0 +1,93 @@
+import os
+import warnings
+from langchain._api import LangChainDeprecationWarning
+from dotenv import load_dotenv, find_dotenv
+
+warnings.simplefilter("ignore", category=LangChainDeprecationWarning)
+_ = load_dotenv(find_dotenv())
+
+from langchain_groq import ChatGroq
+from langchain_community.chat_message_histories import ChatMessageHistory
+from langchain_core.chat_history import BaseChatMessageHistory
+from langchain_core.runnables.history import RunnableWithMessageHistory
+from langchain_core.messages import HumanMessage
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.runnables import RunnablePassthrough, RunnableLambda
+
+llm = ChatGroq(model="llama3-70b-8192")
+
+chatbotMemory = {}
+def get_session_history(session_id: str) -> BaseChatMessageHistory:
+    if session_id not in chatbotMemory:
+        chatbotMemory[session_id] = ChatMessageHistory()
+    return chatbotMemory[session_id]
+
+chat_with_message_history = RunnableWithMessageHistory(
+    llm,
+    get_session_history
+)
+
+session_1 = {"configurable":{"session_id":"001"}}
+
+ResponseFromChatbot = chat_with_message_history.invoke(
+    [HumanMessage(content="My favorite color is red")],
+    config=session_1
+)
+
+ResponseFromChatbot = chat_with_message_history.invoke(
+    [HumanMessage(content="what is my favorite color?")],
+    config=session_1
+)
+
+session2 = {"configurable": {"session_id": "002"}}
+
+responseFromChatbot = chat_with_message_history.invoke(
+    [HumanMessage(content="What's my favorite color?")],
+    config=session2,
+)
+
+def limited_memory_of_messages(messages, number_of_messages_to_keep=2):
+    return messages[-number_of_messages_to_keep:]
+
+prompt = ChatPromptTemplate.from_messages(
+    [
+        (
+            "system",
+            "you are a helpfull assistant. Answer all the questions to the best of your ability",
+        ),
+        MessagesPlaceholder(variable_name="messages"),
+    ]
+)
+
+limited_memory_chain = (
+    RunnablePassthrough.assign(messages=lambda x: limited_memory_of_messages(x["messages"]))
+    | prompt
+    | llm
+)
+
+chat_bot = RunnableWithMessageHistory(
+    limited_memory_chain,
+    get_session_history,
+    input_messages_key="messages",
+)
+
+responseFromChatbot = chat_with_message_history.invoke(
+    [HumanMessage(content="My favorite vehicles are Vespa scooters.")],
+    config=session_1,
+)
+
+responseFromChatbot = chat_with_message_history.invoke(
+    [HumanMessage(content="My favorite city is San Francisco.")],
+    config=session_1,
+)
+
+
+responseFromChatbot = chat_bot.invoke(
+    {
+        "messages":[HumanMessage(content="what is my favorite color?")],
+    },
+    config=session_1,
+)
+
+print(responseFromChatbot.content)
+
